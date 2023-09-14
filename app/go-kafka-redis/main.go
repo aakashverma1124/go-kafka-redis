@@ -1,55 +1,35 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"github.com/go-redis/redis/v8"
-	"go-kafka-redis/model"
+	"flag"
+	CacheFactory "go-kafka-redis/cache/factory"
+	"go-kafka-redis/constant"
+	KafkaFactory "go-kafka-redis/kafka/factory"
+)
+
+var (
+	brokerList   = flag.String("kafka.brokers", "localhost:29092", "The comma separated list of brokers in the Kafka cluster")
+	topicList    = flag.String("kafka.topics", "e3f.markets", "REQUIRED: comma separated list of the topics to consume")
+	cacheAddress = flag.String("cache.address", "localhost:6379", "This is cache address")
 )
 
 func main() {
-	fmt.Println("Hello, World")
+	flag.Parse()
 
-	ctx := context.TODO()
-
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
-
-	// testing the redis connection
-	pong, err := client.Ping(ctx).Result()
-	fmt.Println(pong, err)
-
-	// setting value to key
-	err = client.Set(ctx, "name", "Aakash", 0).Err()
-	if err != nil {
-		fmt.Println(err)
+	cacheFactory := &CacheFactory.CacheFactory{}
+	cacheObject := cacheFactory.GetCache(*cacheAddress, constant.REDIS_CACHE)
+	if cacheObject == nil {
+		//logger.L.Panic("Cache object couldn't be initialised", logger.String("Cache Address", *cacheAddress))
 	}
 
-	// getting value from key
-	value, err := client.Get(ctx, "name").Result()
+	kafkaFactory := &KafkaFactory.KafkaFactory{}
+	kafkaConsumer, err := kafkaFactory.GetKafkaConsumer(*brokerList, *topicList, constant.SARAMA_KAFKA)
 	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(value)
-
-	// example to test with composite object
-	json, err := json.Marshal(model.Author{Name: "Elliot", Age: 25})
-	if err != nil {
-		fmt.Println(err)
+		//logger.L.Panic("Kafka Consumer couldn't be initialised", logger.String("KafkaTopics", *topicList), logger.String("KafkaBrokers", *brokerList))
 	}
 
-	err = client.Set(ctx, "id1234", json, 0).Err()
-	if err != nil {
-		fmt.Println(err)
-	}
-	val, err := client.Get(ctx, "id1234").Result()
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(val)
+	app := Service(kafkaConsumer, cacheObject)
+	go app.StartProcessing()
+	<-make(chan int)
 
 }
